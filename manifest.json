@@ -1,0 +1,23 @@
+{
+  "manifest_version": 2,
+  "name": "Crunchyroll Deutsch Filter",
+  "version": "1.0",
+  "description": "Markiert Serien ohne deutsche Sprache auf Crunchyroll.",
+  "permissions": [
+    "storage",
+    "https://www.crunchyroll.com/*"
+  ],
+  "background": {
+    "scripts": ["background.js"]
+  },
+  "content_scripts": [
+    {
+      "matches": ["https://www.crunchyroll.com/de/videos/popular*"],
+      "js": ["content.js"]
+    },
+    {
+      "matches": ["https://www.crunchyroll.com/de/series/*"],
+      "js": ["series-content.js"]
+    }
+  ]
+}

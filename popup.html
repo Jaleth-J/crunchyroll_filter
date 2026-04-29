@@ -1,0 +1,63 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>CR Language Filter</title>
+  <link rel="stylesheet" href="popup.css">
+</head>
+<body>
+  <div class="container">
+    <header>
+      <h1>🎌 Crunchyroll Filter</h1>
+      <p class="subtitle">Sprach-Filter für die Popular-Page</p>
+    </header>
+
+    <section class="settings">
+      <label for="language-select">
+        <span class="label-text">🌐 Gewünschte Sprache:</span>
+        <select id="language-select">
+          <option value="deutsch">🇩🇪 Deutsch</option>
+          <option value="englisch">🇬🇧 English</option>
+          <option value="français">🇫🇷 Français</option>
+          <option value="japanisch">🇯🇵 日本語 (Japanisch)</option>
+          <option value="spanisch">🇪🇸 Español</option>
+          <option value="portugiesisch">🇵🇹 Português</option>
+          <option value="italienisch">🇮🇹 Italiano</option>
+          <option value="russisch">🇷🇺 Русский</option>
+          <option value="arabisch">🇸🇦 العربية</option>
+          <option value="koreanisch">🇰🇷 한국어</option>
+          <option value="chinesisch">🇨🇳 中文</option>
+        </select>
+      </label>
+    </section>
+
+    <section class="status" id="status-section">
+      <div class="status-item">
+        <span class="status-label">Aktuelle Sprache:</span>
+        <span class="status-value" id="current-lang">-</span>
+      </div>
+      <div class="status-item">
+        <span class="status-label">Letzter Filter:</span>
+        <span class="status-value" id="last-filter">-</span>
+      </div>
+    </section>
+
+    <section class="actions">
+      <button id="clear-cache-btn" class="btn btn-secondary">
+        🗑️ Cache leeren
+      </button>
+      <button id="reload-page-btn" class="btn btn-primary">
+        🔄 Seite neu laden
+      </button>
+    </section>
+
+    <footer>
+      <p class="hint">💡 Öffne die Popular-Page und der Filter startet automatisch</p>
+      <p class="version">Version 2.0 - Manifest V3</p>
+    </footer>
+  </div>
+
+  <script src="popup.js"></script>
+</body>
+</html>

@@ -1,0 +1,104 @@
+/* === style.css === */
+/* CSS für die Abdunklung und Badges */
+
+/* Abdunklung für Serien ohne gewünschte Sprache */
+.cr-dimmed {
+  opacity: 0.25 !important;
+  filter: grayscale(85%) brightness(0.5) !important;
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1) !important;
+  position: relative !important;
+}
+
+/* Hover-Effekt: Abgedunkelte Cards werden heller beim Hover */
+.cr-dimmed:hover {
+  opacity: 0.65 !important;
+  filter: grayscale(50%) brightness(0.7) !important;
+  cursor: pointer !important;
+  transform: scale(1.02) !important;
+}
+
+/* Sichtbare Serien (optional - für visuelles Feedback) */
+.cr-visible {
+  transition: all 0.3s ease !important;
+  position: relative !important;
+}
+
+.cr-visible:hover {
+  transform: scale(1.03) !important;
+  box-shadow: 0 8px 16px rgba(76, 175, 80, 0.3) !important;
+}
+
+/* Badge-Styling */
+.cr-badge {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  padding: 5px 10px;
+  border-radius: 6px;
+  font-size: 11px;
+  font-weight: 700;
+  font-family: 'Arial', sans-serif;
+  z-index: 1000;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.3);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.25);
+  animation: cr-badge-fade-in 0.3s ease-out;
+  pointer-events: none; /* Klicks gehen durch */
+}
+
+@keyframes cr-badge-fade-in {
+  from {
+    opacity: 0;
+    transform: translateY(-10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* Warning-Badge (rot/orange) - für fehlende Sprache */
+.cr-badge.cr-warning {
+  background: linear-gradient(135deg, #ff4e28 0%, #ff6b4a 100%);
+  color: #ffffff;
+  border: 2px solid rgba(255, 255, 255, 0.2);
+}
+
+/* Success-Badge (grün) - für vorhandene Sprache */
+.cr-badge.cr-success {
+  background: linear-gradient(135deg, #4caf50 0%, #66bb6a 100%);
+  color: #ffffff;
+  border: 2px solid rgba(255, 255, 255, 0.2);
+}
+
+/* Badge auf abgedunkelten Cards */
+.cr-dimmed .cr-badge {
+  opacity: 0.9;
+}
+
+/* Responsive Anpassungen */
+@media (max-width: 768px) {
+  .cr-badge {
+    top: 6px;
+    right: 6px;
+    padding: 4px 8px;
+    font-size: 10px;
+  }
+}
+
+/* Dark Mode Optimierung */
+@media (prefers-color-scheme: dark) {
+  .cr-badge {
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.4);
+  }
+}
+
+/* Print-Stylesheet - Badges nicht drucken */
+@media print {
+  .cr-badge {
+    display: none !important;
+  }
+  .cr-dimmed {
+    opacity: 1 !important;
+    filter: none !important;
+  }
+}

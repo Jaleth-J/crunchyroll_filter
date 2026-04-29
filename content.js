@@ -156,15 +156,21 @@ async function filterPopularPage() {
             
           } else if (langResult?.hasLanguage === false) {
             missingLanguage++;
+            // WICHTIG: Nur die Card abdunkeln, nicht die ganze Seite!
             card.classList.add('cr-dimmed');
             card.classList.remove('cr-visible');
             
             // Warning-Badge hinzufügen
             addBadge(card, `❌ ${targetLang}`, 'warning');
             console.log(`  ❌ ${title} fehlt ${targetLang}`);
+            console.log(`     Card Element: <${card.tagName} class="${card.className}">`);
             
           } else {
-            console.log(`  ⚠️ ${title}: Sprache nicht erkennbar (hasLanguage=${langResult?.hasLanguage})`);
+            // Unsicher - sichtbar lassen!
+            console.log(`  ⚠️ ${title}: Sprache nicht erkennbar (sichtbar gelassen)`);
+            // Explizit sichtbar lassen
+            card.style.opacity = '1';
+            card.style.filter = 'none';
           }
           
         } catch (msgError) {
@@ -279,9 +285,21 @@ function addBadge(card, text, type) {
   // Z-Index sicherstellen
   card.style.zIndex = '1';
   
+  // WICHTIG: Inline-Styles für Abdunklung direkt auf der Card
+  // Nicht nur Klasse, damit es nicht vererbt wird!
+  if (type === 'warning') {
+    card.style.opacity = '0.25';
+    card.style.filter = 'grayscale(85%) brightness(0.5)';
+    card.style.transition = 'all 0.3s ease';
+  } else if (type === 'success') {
+    card.style.opacity = '1';
+    card.style.filter = 'none';
+  }
+  
   card.appendChild(badge);
+  console.log(`  🏷️ Badge hinzugefügt: ${text} (${type})`);
+  console.log(`     Card Tag: ${card.tagName}, Classes: ${card.className?.substring(0, 80)}`);
 }
-
 // Warte-Funktion für Lazy-Loading
 async function waitForCards() {
   const startTime = Date.now();

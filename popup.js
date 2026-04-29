@@ -4,6 +4,8 @@
 document.addEventListener('DOMContentLoaded', async () => {
   const languageSelect = document.getElementById('language-select');
   const currentLangDisplay = document.getElementById('current-lang');
+  const cachedCountDisplay = document.getElementById('cached-count');
+  const hasLangCountDisplay = document.getElementById('has-lang-count');
   const lastFilterDisplay = document.getElementById('last-filter');
   const clearCacheBtn = document.getElementById('clear-cache-btn');
   const reloadPageBtn = document.getElementById('reload-page-btn');
@@ -12,18 +14,26 @@ document.addEventListener('DOMContentLoaded', async () => {
   // Gewählte Sprache laden und anzeigen
   async function loadSettings() {
     try {
-      const result = await chrome.storage.local.get(['preferredLanguage', 'lastFilterStats']);
+      const result = await chrome.storage.local.get(['preferredLanguage', 'lastFilterStats', 'seriesLanguages']);
       
       // Sprache im Select setzen
       const preferredLang = result.preferredLanguage || 'deutsch';
       languageSelect.value = preferredLang;
       currentLangDisplay.textContent = getLanguageEmoji(preferredLang) + ' ' + preferredLang;
       
+      // Storage-Statistik anzeigen
+      const seriesLanguages = result.seriesLanguages || {};
+      const count = Object.keys(seriesLanguages).length;
+      const hasLang = Object.values(seriesLanguages).filter(s => s.hasLanguage).length;
+      
+      cachedCountDisplay.textContent = count;
+      hasLangCountDisplay.textContent = hasLang;
+      
       // Filter-Statistik anzeigen
       if (result.lastFilterStats) {
         const stats = result.lastFilterStats;
         const date = new Date(stats.date).toLocaleString('de-DE');
-        lastFilterDisplay.textContent = `${date} (${stats.processed} geprüft, ${stats.hasLanguage} ✅)`;
+        lastFilterDisplay.textContent = `${date} (${stats.processed} geprüft)`;
       } else {
         lastFilterDisplay.textContent = 'Noch nicht verwendet';
       }

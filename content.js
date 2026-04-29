@@ -1,6 +1,6 @@
 // === content.js ===
 // Haupt-Script für die Popular-Page Filterung
-// Läuft im Kontext der Crunchyroll-Website
+// Liest Sprach-Daten aus dem persistenten Storage
 
 // Browser-API vereinheitlichen (Firefox + Chrome)
 const storage = typeof browser !== 'undefined' ? browser.storage : chrome.storage;
@@ -14,29 +14,26 @@ const MAX_WAIT_TIME = 15000;
 const CHECK_INTERVAL = 500;
 
 // CRUNCHYROLL 2026 CARD SELECTORS (aktualisiert basierend auf DOM-Analyse)
-// BEM-Naming: .browse-card, .browse-card__*, .erc-browse-cards-collection
 const CARD_SELECTORS = [
-  '.browse-card',                    // Haupt-Card Container (BEM)
-  '[class*="browse-card"]',          // BEM-Varianten
-  '.erc-show-card',                  // Legacy
-  '.card-element',                   // Legacy
-  '[data-testid="card"]',            // Test-ID
-  '.tile-card',                      // Alternative
-  '.media-card',                     // Alternative
-  'article',                         // Semantic HTML
-  '.show-card',                      // Generic
+  '.browse-card',
+  '[class*="browse-card"]',
+  '.erc-show-card',
+  '.card-element',
+  '[data-testid="card"]',
+  '.tile-card',
+  '.media-card',
+  'article',
+  '.show-card',
 ];
 
-// Link-Selector für Serien-URLs
 const LINK_SELECTORS = [
   'a[href*="/series"]',
   'a[href*="/watch"]',
-  '.browse-card__poster-wrapper--pU-AW',  // Spezifisch für CR 2026
+  '.browse-card__poster-wrapper--pU-AW',
   'a.browse-card__poster',
   'a.card-link'
 ];
 
-// Titel-Selector
 const TITLE_SELECTORS = [
   '.browse-card__title',
   '.card-title',
@@ -61,127 +58,78 @@ async function filterPopularPage() {
     const cards = findCards();
     console.log(`📦 ${cards.length} Cards gefunden`);
     
-    // Debug: Zeige gefundene Cards
-    if (cards.length > 0) {
-      console.log('📋 Erste 5 Cards:', Array.from(cards).slice(0, 5).map((c, i) => ({
-        index: i,
-        tag: c.tagName,
-        classes: c.className?.substring(0, 100),
-        hasLink: !!findLink(c)
-      })));
-    }
-    
     if (cards.length === 0) {
-      console.warn('⚠️ Keine Cards gefunden - vielleicht falsche Seite?');
-      console.log('🔍 Aktuelle URL:', window.location.href);
-      console.log('🔍 Verfügbare Selector testen:');
-      CARD_SELECTORS.forEach(sel => {
-        const count = document.querySelectorAll(sel).length;
-        if (count > 0) console.log(`  ✅ ${sel}: ${count} Elemente`);
-      });
+      console.warn('⚠️ Keine Cards gefunden');
       return;
     }
     
     let processed = 0;
     let hasLanguage = 0;
     let missingLanguage = 0;
-    let errors = 0;
-    let noLink = 0;
+    let notInCache = 0;
     
     // Jede Card analysieren
     for (const card of cards) {
       try {
         processed++;
         
-        // Serien-URL aus der Card extrahieren
+        // Serien-URL und ID extrahieren
         const link = findLink(card);
-        if (!link) {
-          noLink++;
-          continue;
-        }
+        if (!link) continue;
         
         let href = link.getAttribute('href');
-        
-        // Relative URL zu absoluter URL machen
         if (href && href.startsWith('/')) {
           href = 'https://www.crunchyroll.com' + href;
         }
         
-        // Titel für Logging
-        const title = findTitle(card);
-        console.log(`  [${processed}/${cards.length}] 📺 Prüfe: ${title || 'Unbekannt'}`);
+        // Serien-ID aus URL extrahieren
+        const seriesId = extractSeriesId(href);
+        const title = findTitle(card) || 'Unbekannt';
         
-        if (!href) {
-          console.log(`     ⚠️ Keine URL gefunden`);
+        console.log(`  [${processed}/${cards.length}] 📺 ${title}`);
+        
+        // Sprache aus Storage abrufen
+        const langResult = await runtime.sendMessage({
+          action: 'getLanguage',
+          seriesId,
+          seriesUrl: href,
+          targetLanguage: targetLang
+        });
+        
+        if (langResult?.error) {
+          console.warn(`     ⚠️ Fehler: ${langResult.error}`);
           continue;
         }
         
-        console.log(`     URL: ${href}`);
-        
-        // Background-Script fragt Sprache ab (CORS-frei!)
-        try {
-          const langResult = await runtime.sendMessage({
-            action: 'checkLanguage',
-            seriesUrl: href,
-            targetLanguage: targetLang
-          });
-          
-          console.log(`     Antwort Background:`, langResult);
-          
-          if (langResult?.error) {
-            console.warn(`  ⚠️ Fehler bei ${title}: ${langResult.error}`);
-            errors++;
-            continue;
+        // Ergebnis verarbeiten
+        if (langResult?.fromStorage) {
+          // Im Cache gefunden!
+          console.log(`     📦 Cache: ${langResult.hasLanguage ? '✅ HAT' : '❌ FEHLT'} ${targetLang}`);
+          if (langResult.detectedText) {
+            console.log(`     📝 Text: "${langResult.detectedText.substring(0, 60)}"`);
           }
           
-          // Debug-Info vom Background-Script
-          if (langResult?.debugText) {
-            console.log(`     📝 Gefundener Sprach-Text (${langResult.debugMethod}): "${langResult.debugText.substring(0, 100)}"`);
-          } else if (langResult?.debugText === '') {
-            console.log(`     ⚠️ KEIN SPRACH-TEXT GEFUNDEN - Serie wird NICHT abgedunkelt (unsicher)`);
-          }
-          
-          // Card entsprechend markieren
-          // WICHTIG: Nur abdunkeln wenn hasLanguage === false (explizit falsch)
-          // Bei null/undefined (Fehler) oder undefined (kein Text gefunden) NICHT abdunkeln!
-          // Lieber sichtbar lassen als falsch abdunkeln!
-          if (langResult?.hasLanguage === true) {
+          if (langResult.hasLanguage === true) {
             hasLanguage++;
-            card.classList.remove('cr-dimmed');
-            card.classList.add('cr-visible');
-            
-            // Success-Badge hinzufügen
             addBadge(card, '✅', 'success');
-            console.log(`  ✅ ${title} hat ${targetLang}`);
+            console.log(`     ✅ ${title} hat ${targetLang}`);
             
-          } else if (langResult?.hasLanguage === false) {
+          } else if (langResult.hasLanguage === false) {
             missingLanguage++;
-            // WICHTIG: Nur die Card abdunkeln, nicht die ganze Seite!
-            card.classList.add('cr-dimmed');
-            card.classList.remove('cr-visible');
-            
-            // Warning-Badge hinzufügen
             addBadge(card, `❌ ${targetLang}`, 'warning');
-            console.log(`  ❌ ${title} fehlt ${targetLang}`);
-            console.log(`     Card Element: <${card.tagName} class="${card.className}">`);
+            console.log(`     ❌ ${title} fehlt ${targetLang}`);
             
-          } else {
-            // Unsicher - sichtbar lassen!
-            console.log(`  ⚠️ ${title}: Sprache nicht erkennbar (sichtbar gelassen)`);
-            // Explizit sichtbar lassen
-            card.style.opacity = '1';
-            card.style.filter = 'none';
           }
           
-        } catch (msgError) {
-          console.error(`  🚨 Message Error bei ${title}:`, msgError);
-          console.error(`     Error details:`, msgError.message);
-          errors++;
+        } else {
+          // NICHT im Cache - User muss Detail-Seite besuchen
+          notInCache++;
+          console.log(`     ⚠️ NICHT im Cache - Besuche Detail-Seite!`);
+          addBadge(card, '❓', 'unknown');
         }
         
       } catch (error) {
         console.error(`  🚨 Fehler bei Card ${processed}:`, error);
-        errors++;
       }
     }
     
@@ -190,29 +138,31 @@ async function filterPopularPage() {
     console.log(`   Verarbeitet: ${processed}`);
     console.log(`   Mit ${targetLang}: ${hasLanguage} ✅`);
     console.log(`   Ohne ${targetLang}: ${missingLanguage} ❌`);
-    console.log(`   Ohne Link: ${noLink}`);
-    console.log(`   Fehler: ${errors}`);
+    console.log(`   Nicht im Cache: ${notInCache} ❓`);
+    console.log(`\n💡 Tipp: Klicke auf Serien mit ❓ um die Sprache zu speichern!`);
     
-    // Statistik im Storage speichern
-    try {
-      await storage.local.set({
-        lastFilterStats: {
-          date: new Date().toISOString(),
-          processed,
-          hasLanguage,
-          missingLanguage,
-          noLink,
-          language: targetLang,
-          errors
-        }
-      });
-    } catch (storageError) {
-      console.warn('⚠️ Konnte Stats nicht speichern:', storageError);
-    }
+    // Statistik speichern
+    await storage.local.set({
+      lastFilterStats: {
+        date: new Date().toISOString(),
+        processed,
+        hasLanguage,
+        missingLanguage,
+        notInCache,
+        language: targetLang
+      }
+    });
     
   } catch (error) {
-    console.error('🚨 Kritischer Fehler in filterPopularPage:', error);
+    console.error('🚨 Kritischer Fehler:', error);
   }
+}
+
+// Serien-ID aus URL extrahieren
+function extractSeriesId(url) {
+  // Format: https://www.crunchyroll.com/de/series/{seriesId}/title
+  const match = url.match(/\/series\/([A-Z0-9]+)\//i);
+  return match ? match[1] : null;
 }
 
 // Finde alle Cards auf der Seite
@@ -224,11 +174,11 @@ function findCards() {
       const elements = document.querySelectorAll(selector);
       elements.forEach(el => allCards.add(el));
     } catch (e) {
-      // Invalid selector, skip
+      // Invalid selector
     }
   });
   
-  // Filtere nur sichtbare Cards mit Mindestgröße
+  // Filtere nur sichtbare Cards
   return Array.from(allCards).filter(card => {
     const rect = card.getBoundingClientRect();
     return rect.width > 100 && rect.height > 100;
@@ -243,7 +193,6 @@ function findLink(card) {
       return link;
     }
   }
-  // Fallback: irgendein Link mit /series/
   return card.querySelector('a[href*="/series"]');
 }
 
@@ -255,7 +204,6 @@ function findTitle(card) {
       return el.textContent.trim().substring(0, 50);
     }
   }
-  // Fallback: aria-label oder title-Attribut
   const link = findLink(card);
   if (link) {
     return link.getAttribute('aria-label') || link.getAttribute('title');
@@ -276,17 +224,15 @@ function addBadge(card, text, type) {
   badge.className = `cr-badge cr-${type}`;
   badge.textContent = text;
   
-  // Card braucht position: relative für absolute Badges
+  // Position sicherstellen
   const computedStyle = getComputedStyle(card);
   if (computedStyle.position === 'static' || computedStyle.position === '') {
     card.style.position = 'relative';
   }
   
-  // Z-Index sicherstellen
   card.style.zIndex = '1';
   
-  // WICHTIG: Inline-Styles für Abdunklung direkt auf der Card
-  // Nicht nur Klasse, damit es nicht vererbt wird!
+  // Inline-Styles für Abdunklung (nicht vererbbar!)
   if (type === 'warning') {
     card.style.opacity = '0.25';
     card.style.filter = 'grayscale(85%) brightness(0.5)';
@@ -294,12 +240,15 @@ function addBadge(card, text, type) {
   } else if (type === 'success') {
     card.style.opacity = '1';
     card.style.filter = 'none';
+  } else if (type === 'unknown') {
+    card.style.opacity = '0.6';
+    card.style.filter = 'grayscale(30%)';
   }
   
   card.appendChild(badge);
-  console.log(`  🏷️ Badge hinzugefügt: ${text} (${type})`);
-  console.log(`     Card Tag: ${card.tagName}, Classes: ${card.className?.substring(0, 80)}`);
+  console.log(`     🏷️ Badge: ${text} (${type})`);
 }
+
 // Warte-Funktion für Lazy-Loading
 async function waitForCards() {
   const startTime = Date.now();
@@ -329,7 +278,6 @@ function init() {
   
   console.log('🔍 URL geprüft:', url);
   
-  // Prüfen ob wir auf einer Listen-Seite sind
   const isPopularPage = url.includes('/popular') || 
                         url.includes('/videos/popular') ||
                         url.includes('/browse') ||
@@ -348,47 +296,26 @@ function init() {
       waitForCards().then(filterPopularPage).catch(console.error);
     }
   } else {
-    console.log('ℹ️ Keine Popular-Page erkannt. Filter inaktiv.');
-    console.log('   Unterstützte URLs: /popular, /videos/popular, /browse, /discover, /search, /series');
+    console.log('ℹ️ Keine Popular-Page erkannt');
   }
 }
 
 // Starten
 init();
 
-// Bei Navigation neu starten (SPA-Support)
+// Bei Navigation neu starten
 let lastUrl = location.href;
 new MutationObserver(() => {
   const url = location.href;
   if (url !== lastUrl) {
     lastUrl = url;
     console.log('🔄 URL geändert - re-initialisiere...');
-    console.log('   Neue URL:', url);
     init();
   }
 }).observe(document, { subtree: true, childList: true });
 
-// Bei Page-Show (Back-Button, Reload) neu initialisieren
+// Bei Page-Show (Back-Button, Reload)
 window.addEventListener('pageshow', (event) => {
-  console.log('📄 Page-Show Event:', event.persisted ? 'aus Cache' : 'frisch geladen');
-  // Kurz warten bis DOM bereit ist
-  setTimeout(() => {
-    console.log('🔄 Re-Initialisiere Filter nach Page-Show...');
-    init();
-  }, 500);
-});
-
-// Bei DOM-Reload (z.B. SPA Navigation)
-document.addEventListener('readystatechange', () => {
-  if (document.readyState === 'interactive' || document.readyState === 'complete') {
-    console.log('📄 DOM Ready State:', document.readyState);
-    // Verhindern dass es zu oft feuert
-    setTimeout(() => {
-      const url = location.href;
-      if (url.includes('/popular') || url.includes('/browse') || url.includes('/discover')) {
-        console.log('🔄 Re-Initialisiere nach DOM-Ready...');
-        init();
-      }
-    }, 1000);
-  }
+  console.log('📄 Page-Show:', event.persisted ? 'aus Cache' : 'frisch');
+  setTimeout(() => init(), 500);
 });

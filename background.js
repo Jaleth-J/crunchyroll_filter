@@ -1,9 +1,6 @@
 // === background.js ===
-// Iframe-basierte Sprach-Prüfung für Crunchyroll
-// Da Fetch blockiert wird, nutzen wir versteckte Iframes
-
-const languageCache = new Map();
-const pendingRequests = new Map(); // Track aktive Iframe-Requests
+// Persistent Storage für Sprach-Daten
+// Da Fetch UND Iframes blockiert werden, sammeln wir Daten beim User-Besuch auf Detail-Seiten
 
 const LANG_MAP = {
   'deutsch': ['deutsch', 'german', 'de', 'ger'],
@@ -20,120 +17,128 @@ const LANG_MAP = {
 };
 
 const runtime = typeof browser !== 'undefined' ? browser.runtime : chrome.runtime;
+const storage = typeof browser !== 'undefined' ? browser.storage : chrome.storage;
 
 // Message Listener
-const messageListener = (request, sender, sendResponse) => {
-  if (request.action === 'checkLanguage') {
-    const { seriesUrl, targetLanguage } = request;
-    const cacheKey = `${seriesUrl}:${targetLanguage}`;
+const messageListener = async (request, sender, sendResponse) => {
+  
+  // Sprache für eine Serie speichern (von series-content.js)
+  if (request.action === 'saveLanguage') {
+    const { seriesId, seriesUrl, hasLanguage, language, detectedText } = request;
     
-    console.log(`\n[Background] === ANFRAGE ===`);
-    console.log(`[Background] URL: ${seriesUrl}`);
-    console.log(`[Background] Sprache: ${targetLanguage}`);
+    console.log(`[Background] 💾 Speichere Sprache: ${seriesId} → ${hasLanguage ? '✅' : '❌'}`);
     
-    // Cache prüfen
-    if (languageCache.has(cacheKey)) {
-      const result = languageCache.get(cacheKey);
-      console.log(`[Background] 📦 CACHE: ${result ? '✅' : '❌'}`);
-      return sendResponse({ hasLanguage: result, cached: true });
-    }
-    
-    // Prüfen ob bereits Anfrage läuft
-    if (pendingRequests.has(cacheKey)) {
-      console.log(`[Background] ⏳ Warte auf laufende Anfrage...`);
-      setTimeout(() => {
-        if (languageCache.has(cacheKey)) {
-          sendResponse({ hasLanguage: languageCache.get(cacheKey), cached: true });
-        } else {
-          sendResponse({ hasLanguage: null, cached: false });
-        }
-      }, 2000);
-      return true;
-    }
-    
-    pendingRequests.set(cacheKey, true);
-    
-    // Iframe-Methode: Serie in verstecktem Iframe laden
-    console.log(`[Background] 🖼️ Erstelle Iframe...`);
-    
-    const iframe = document.createElement('iframe');
-    iframe.style.display = 'none';
-    iframe.style.position = 'fixed';
-    iframe.style.left = '-9999px';
-    iframe.style.top = '-9999px';
-    iframe.style.width = '1px';
-    iframe.style.height = '1px';
-    iframe.style.border = 'none';
-    iframe.src = seriesUrl;
-    
-    const timeout = setTimeout(() => {
-      console.log(`[Background] ⏱️ TIMEOUT (10s)`);
-      if (iframe.parentNode) iframe.remove();
-      pendingRequests.delete(cacheKey);
-      sendResponse({ hasLanguage: null, cached: false, timeout: true });
-    }, 10000);
-    
-    iframe.onload = () => {
-      console.log(`[Background] ✅ Iframe geladen`);
+    try {
+      // Hole existierende Daten
+      const existing = await storage.local.get(['seriesLanguages']);
+      const seriesLanguages = existing.seriesLanguages || {};
       
-      // Warte auf dynamisches Laden der Seite
-      setTimeout(() => {
-        try {
-          const iframeDoc = iframe.contentDocument || iframe.contentWindow.document;
-          
-          // Sprach-Information suchen
-          const audioBlock = iframeDoc.querySelector('[data-t="detail-row-audio-language"]');
-          const descElement = audioBlock?.querySelector('[data-t="details-item-description"]');
-          const text = descElement?.textContent.toLowerCase() || '';
-          
-          console.log(`[Background] 📝 Text: "${text || '(leer)'}"`);
-          
-          // Sprach-Prüfung
-          const targets = LANG_MAP[targetLanguage?.toLowerCase()] || [targetLanguage?.toLowerCase()];
-          const hasLanguage = text && targets.some(t => text.includes(t));
-          
-          console.log(`[Background] 🎯 Ergebnis: ${hasLanguage ? '✅ HAT' : '❌ FEHLT'}`);
-          
-          languageCache.set(cacheKey, hasLanguage);
-          pendingRequests.delete(cacheKey);
-          
-          clearTimeout(timeout);
-          if (iframe.parentNode) iframe.remove();
-          
-          sendResponse({ hasLanguage, cached: false, debugText: text });
-          
-        } catch (parseError) {
-          console.error('[Background] Parse-Fehler:', parseError);
-          clearTimeout(timeout);
-          if (iframe.parentNode) iframe.remove();
-          pendingRequests.delete(cacheKey);
-          sendResponse({ hasLanguage: null, error: parseError.message });
+      // Speichere mit Timestamp
+      seriesLanguages[seriesId] = {
+        hasLanguage,
+        language,
+        detectedText,
+        url: seriesUrl,
+        lastUpdated: new Date().toISOString()
+      };
+      
+      await storage.local.set({ seriesLanguages });
+      console.log(`[Background] ✅ Gespeichert im Storage`);
+      
+      sendResponse({ success: true });
+      
+    } catch (error) {
+      console.error('[Background] Speicher-Fehler:', error);
+      sendResponse({ success: false, error: error.message });
+    }
+    
+    return true;
+  }
+  
+  // Sprache für eine Serie abrufen (von content.js auf Popular-Page)
+  if (request.action === 'getLanguage') {
+    const { seriesId, seriesUrl, targetLanguage } = request;
+    
+    console.log(`[Background] 🔍 Suche Sprache für: ${seriesId || seriesUrl}`);
+    
+    try {
+      const existing = await storage.local.get(['seriesLanguages', 'preferredLanguage']);
+      const seriesLanguages = existing.seriesLanguages || {};
+      
+      // Direkt nach seriesId suchen
+      if (seriesId && seriesLanguages[seriesId]) {
+        const data = seriesLanguages[seriesId];
+        console.log(`[Background] 📦 Gefunden im Cache: ${data.hasLanguage ? '✅' : '❌'}`);
+        console.log(`[Background] 📝 Text war: "${data.detectedText}"`);
+        sendResponse({ 
+          hasLanguage: data.hasLanguage, 
+          cached: true,
+          fromStorage: true,
+          detectedText: data.detectedText
+        });
+        return true;
+      }
+      
+      // Fallback: Nach URL suchen
+      if (seriesUrl) {
+        const foundId = Object.keys(seriesLanguages).find(id => 
+          seriesLanguages[id].url === seriesUrl
+        );
+        if (foundId) {
+          const data = seriesLanguages[foundId];
+          console.log(`[Background] 📦 Gefunden via URL: ${data.hasLanguage ? '✅' : '❌'}`);
+          sendResponse({ 
+            hasLanguage: data.hasLanguage, 
+            cached: true,
+            fromStorage: true,
+            detectedText: data.detectedText
+          });
+          return true;
         }
-      }, 2000); // Warte auf dynamisches Laden
-    };
-    
-    iframe.onerror = () => {
-      console.error('[Background] Iframe Lade-Fehler');
-      clearTimeout(timeout);
-      if (iframe.parentNode) iframe.remove();
-      pendingRequests.delete(cacheKey);
-      sendResponse({ hasLanguage: null, error: 'Iframe failed' });
-    };
-    
-    document.body.appendChild(iframe);
-    console.log(`[Background] Iframe hinzugefügt`);
+      }
+      
+      // Nicht im Cache - User muss Detail-Seite besuchen
+      console.log(`[Background] ⚠️ NICHT im Cache - User muss Detail-Seite besuchen`);
+      sendResponse({ hasLanguage: null, cached: false, fromStorage: false });
+      
+    } catch (error) {
+      console.error('[Background] Lese-Fehler:', error);
+      sendResponse({ hasLanguage: null, error: error.message });
+    }
     
     return true;
   }
   
+  // Alle gespeicherten Sprachen löschen
   if (request.action === 'clearCache') {
-    languageCache.clear();
-    pendingRequests.clear();
-    console.log('[Background] Cache geleert');
-    sendResponse({ success: true });
+    try {
+      await storage.local.remove(['seriesLanguages']);
+      console.log('[Background] 🗑️ Storage geleert');
+      sendResponse({ success: true });
+    } catch (error) {
+      console.error('[Background] Lösch-Fehler:', error);
+      sendResponse({ success: false, error: error.message });
+    }
     return true;
   }
   
+  // Statistik abrufen
+  if (request.action === 'getStats') {
+    try {
+      const existing = await storage.local.get(['seriesLanguages']);
+      const seriesLanguages = existing.seriesLanguages || {};
+      const count = Object.keys(seriesLanguages).length;
+      const hasLang = Object.values(seriesLanguages).filter(s => s.hasLanguage).length;
+      
+      console.log(`[Background] 📊 Stats: ${count} Serien, ${hasLang} mit Sprache`);
+      sendResponse({ count, hasLang, missing: count - hasLang });
+    } catch (error) {
+      sendResponse({ count: 0, hasLang: 0, missing: 0 });
+    }
+    return true;
+  }
+  
+  // Verfügbare Sprachen zurückgeben
   if (request.action === 'getAvailableLanguages') {
     sendResponse({ languages: Object.keys(LANG_MAP) });
     return true;
@@ -142,5 +147,6 @@ const messageListener = (request, sender, sendResponse) => {
 
 if (typeof runtime !== 'undefined') {
   runtime.onMessage.addListener(messageListener);
-  console.log('[Background] Iframe-Handler gestartet');
+  console.log('[Background] Storage-Handler gestartet');
+  console.log('[Background] Hinweis: Sprachen werden beim Besuch von Detail-Seiten gespeichert');
 }

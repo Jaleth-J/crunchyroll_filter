@@ -1,8 +1,8 @@
 {
   "manifest_version": 2,
   "name": "Crunchyroll Language Filter",
-  "version": "2.0",
-  "description": "Filtert Crunchyroll-Serien nach Audiosprache - Popular Page Support mit CORS-freiem Background-Script",
+  "version": "2.1",
+  "description": "Filtert Crunchyroll-Serien nach Audiosprache - Persistent Storage Ansatz",
   "icons": {
     "48": "icons/icon48.png"
   },
@@ -16,6 +16,11 @@
     "persistent": false
   },
   "content_scripts": [
+    {
+      "matches": ["*://*.crunchyroll.com/de/series/*"],
+      "js": ["series-content.js"],
+      "run_at": "document_idle"
+    },
     {
       "matches": ["*://*.crunchyroll.com/*"],
       "js": ["content.js"],

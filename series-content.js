@@ -1,37 +1,71 @@
 // === series-content.js ===
-// Wird auf Detail-Seiten ausgeführt (z.B. /de/series/XXX/title)
+// Wird auf Serien-Seiten ausgeführt (z.B. /de/series/XXX/title)
 // Liest die Audio-Sprachen aus und speichert sie im Background-Storage
 
-console.log('📄 series-content.js aktiv auf Detail-Seite');
+console.log('📄 series-content.js aktiv auf Serien-Seite');
 
 const storage = typeof browser !== 'undefined' ? browser.storage : chrome.storage;
 const runtime = typeof browser !== 'undefined' ? browser.runtime : chrome.runtime;
 
-// Warte auf dynamisches Laden der Seite
-const MAX_WAIT_TIME = 10000;
+// Längere Wartezeit für dynamisches Laden
+const MAX_WAIT_TIME = 15000;
 const CHECK_INTERVAL = 500;
 
-async function detectAndSaveLanguage() {
-  console.log('🔍 Suche Audio-Sprachen auf Detail-Seite...');
+// Audio-Sprachen mit robustem Selector finden
+async function detectAudioLanguages() {
+  console.log('🔍 Suche Audio-Sprachen...');
   
   const startTime = Date.now();
   
-  return new Promise((resolve, reject) => {
+  return new Promise((resolve) => {
     const check = () => {
-      // Audio-Sprachen Block finden
+      // HAUPT-SELECTOR: data-t="detail-row-audio-language"
       const audioBlock = document.querySelector('[data-t="detail-row-audio-language"]');
-      const descElement = audioBlock?.querySelector('[data-t="details-item-description"]');
       
-      if (descElement && descElement.textContent.trim()) {
-        const text = descElement.textContent.trim();
-        console.log(`✅ Audio-Sprachen gefunden: "${text}"`);
-        resolve(text);
-      } else if (Date.now() - startTime > MAX_WAIT_TIME) {
-        console.warn('⏱️ Timeout - keine Audio-Sprachen gefunden');
-        resolve(null);
-      } else {
-        setTimeout(check, CHECK_INTERVAL);
+      if (audioBlock) {
+        // Versuch 1: Direkt im Block nach Text suchen
+        let text = audioBlock.textContent?.trim() || '';
+        
+        // Versuch 2: Nach DD Element suchen (Definition List)
+        if (!text || text.length < 10) {
+          const ddElement = audioBlock.querySelector('dd');
+          if (ddElement) {
+            text = ddElement.textContent?.trim() || '';
+          }
+        }
+        
+        // Versuch 3: Nach SPAN suchen
+        if (!text || text.length < 10) {
+          const spanElement = audioBlock.querySelector('span');
+          if (spanElement) {
+            text = spanElement.textContent?.trim() || '';
+          }
+        }
+        
+        // Text bereinigen (Audio: Präfix entfernen)
+        text = text.replace(/^Audio:\s*/i, '').trim();
+        
+        if (text && text.length > 5) {
+          console.log(`✅ Audio-Sprachen gefunden: "${text}"`);
+          console.log(`   Gefunden nach: ${Date.now() - startTime}ms`);
+          resolve(text);
+          return;
+        }
       }
+      
+      // Timeout prüfen
+      if (Date.now() - startTime > MAX_WAIT_TIME) {
+        console.warn('⏱️ Timeout - keine Audio-Sprachen gefunden');
+        console.log('   Mögliche Gründe:');
+        console.log('   - Seite noch nicht vollständig geladen');
+        console.log('   - Crunchyroll hat die Struktur geändert');
+        console.log('   - Element ist außerhalb des Viewports');
+        resolve(null);
+        return;
+      }
+      
+      // Weiter warten
+      setTimeout(check, CHECK_INTERVAL);
     };
     
     check();
@@ -54,14 +88,80 @@ function getSeriesInfo() {
   return { seriesId, url, title };
 }
 
+// Visuelles Feedback anzeigen
+function showSaveIndicator(hasLanguage, text) {
+  // Existierende Indikatoren entfernen
+  const existing = document.querySelector('.cr-language-indicator');
+  if (existing) existing.remove();
+  
+  const indicator = document.createElement('div');
+  indicator.className = 'cr-language-indicator';
+  indicator.style.cssText = `
+    position: fixed;
+    bottom: 20px;
+    right: 20px;
+    padding: 15px 25px;
+    background: ${hasLanguage ? 'linear-gradient(135deg, #4caf50, #66bb6a)' : 'linear-gradient(135deg, #ff4e28, #ff6b4a)'};
+    color: white;
+    border-radius: 8px;
+    font-size: 14px;
+    font-weight: bold;
+    box-shadow: 0 4px 16px rgba(0,0,0,0.3);
+    z-index: 99999;
+    animation: crSlideIn 0.3s ease-out;
+    max-width: 400px;
+  `;
+  
+  const languages = text?.substring(0, 80) || '';
+  indicator.innerHTML = `
+    <div style="margin-bottom: 5px;">
+      ${hasLanguage ? '✅' : '❌'} Sprache gespeichert
+    </div>
+    <div style="font-size: 12px; font-weight: normal; opacity: 0.9;">
+      ${languages}${languages?.length >= 80 ? '...' : ''}
+    </div>
+  `;
+  
+  // Animation Styles hinzufügen
+  if (!document.querySelector('#cr-indicator-styles')) {
+    const style = document.createElement('style');
+    style.id = 'cr-indicator-styles';
+    style.textContent = `
+      @keyframes crSlideIn {
+        from { transform: translateX(100%); opacity: 0; }
+        to { transform: translateX(0); opacity: 1; }
+      }
+      @keyframes crFadeOut {
+        from { opacity: 1; }
+        to { opacity: 0; }
+      }
+    `;
+    document.head.appendChild(style);
+  }
+  
+  document.body.appendChild(indicator);
+  
+  // Nach 4 Sekunden ausblenden
+  setTimeout(() => {
+    indicator.style.animation = 'crFadeOut 0.3s ease-out';
+    setTimeout(() => {
+      indicator.remove();
+    }, 300);
+  }, 4000);
+}
+
 // Hauptfunktion
 async function main() {
   console.log('\n=== series-content.js startet ===');
+  console.log('⏰ Startzeit:', new Date().toLocaleTimeString());
   
   // Warte bis Seite geladen ist
   if (document.readyState === 'loading') {
     await new Promise(resolve => document.addEventListener('DOMContentLoaded', resolve));
   }
+  
+  // Kurze Pause damit Crunchyroll Zeit hat zu laden
+  await new Promise(resolve => setTimeout(resolve, 1000));
   
   // Serien-Info extrahieren
   const { seriesId, url, title } = getSeriesInfo();
@@ -71,19 +171,21 @@ async function main() {
     return;
   }
   
-  // Audio-Sprachen erkennen
-  const audioText = await detectAndSaveLanguage();
+  // Audio-Sprachen erkennen (mit Wartezeit)
+  const audioText = await detectAudioLanguages();
   
   if (!audioText) {
     console.warn('⚠️ Konnte keine Audio-Sprachen auslesen');
+    showSaveIndicator(false, 'Keine Sprach-Infos gefunden');
     return;
   }
   
-  // Sprache prüfen
+  // Sprache prüfen (auf Deutsch)
   const textLower = audioText.toLowerCase();
   const hasGerman = textLower.includes('deutsch') || textLower.includes('german');
   
-  console.log(`🎯 Hat Deutsch: ${hasGerman ? '✅ JA' : '❌ NEIN'}`);
+  console.log(`🎯 Enthält Deutsch: ${hasGerman ? '✅ JA' : '❌ NEIN'}`);
+  console.log(`   Sprachen: ${audioText}`);
   
   // Speichern
   try {
@@ -98,63 +200,17 @@ async function main() {
     
     if (response?.success) {
       console.log('✅ Erfolgreich im Storage gespeichert');
-      
-      // Visuelles Feedback auf der Seite
-      showSaveIndicator(hasGerman);
+      showSaveIndicator(hasGerman, audioText);
     } else {
       console.error('❌ Speichern fehlgeschlagen:', response?.error);
+      showSaveIndicator(false, 'Speichern fehlgeschlagen');
     }
   } catch (error) {
     console.error('❌ Fehler beim Speichern:', error);
+    showSaveIndicator(false, 'Fehler beim Speichern');
   }
   
   console.log('=== series-content.js fertig ===\n');
-}
-
-// Visuelles Feedback anzeigen
-function showSaveIndicator(hasLanguage) {
-  const indicator = document.createElement('div');
-  indicator.style.cssText = `
-    position: fixed;
-    bottom: 20px;
-    right: 20px;
-    padding: 15px 25px;
-    background: ${hasLanguage ? 'linear-gradient(135deg, #4caf50, #66bb6a)' : 'linear-gradient(135deg, #ff4e28, #ff6b4a)'};
-    color: white;
-    border-radius: 8px;
-    font-size: 16px;
-    font-weight: bold;
-    box-shadow: 0 4px 16px rgba(0,0,0,0.3);
-    z-index: 99999;
-    animation: slideIn 0.3s ease-out;
-  `;
-  indicator.textContent = hasLanguage 
-    ? '✅ Sprache gespeichert' 
-    : '❌ Keine deutsche Sprache gespeichert';
-  
-  // Animation hinzufügen
-  const style = document.createElement('style');
-  style.textContent = `
-    @keyframes slideIn {
-      from { transform: translateX(100%); opacity: 0; }
-      to { transform: translateX(0); opacity: 1; }
-    }
-    @keyframes fadeOut {
-      from { opacity: 1; }
-      to { opacity: 0; }
-    }
-  `;
-  document.head.appendChild(style);
-  document.body.appendChild(indicator);
-  
-  // Nach 3 Sekunden ausblenden
-  setTimeout(() => {
-    indicator.style.animation = 'fadeOut 0.3s ease-out';
-    setTimeout(() => {
-      indicator.remove();
-      style.remove();
-    }, 300);
-  }, 3000);
 }
 
 // Starten

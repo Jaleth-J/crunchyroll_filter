@@ -1,6 +1,6 @@
 // === background.js ===
 // CORS-freie Requests für Sprachprüfung
-// Wird als Service Worker im Hintergrund ausgeführt
+// Wird als Background-Script ausgeführt (Manifest V2 für Firefox)
 
 const languageCache = new Map(); // Session-Cache für wiederholte Anfragen
 
@@ -20,7 +20,12 @@ const LANG_MAP = {
   'chinesisch': ['chinese', '中文', 'zh', 'chi', 'mandarin']
 };
 
-chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
+// Browser-API vereinheitlichen (Firefox uses browser.*, Chrome uses chrome.*)
+const runtime = typeof browser !== 'undefined' ? browser.runtime : chrome.runtime;
+const storage = typeof browser !== 'undefined' ? browser.storage : chrome.storage;
+
+// Message Listener für Sprach-Anfragen
+const messageListener = (request, sender, sendResponse) => {
   if (request.action === 'checkLanguage') {
     const { seriesUrl, targetLanguage } = request;
     
@@ -88,9 +93,17 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     sendResponse({ languages: Object.keys(LANG_MAP) });
     return true;
   }
-});
+};
 
-// Service Worker bleibt aktiv
-self.addEventListener('install', () => {
+// Listener registrieren (Firefox + Chrome kompatibel)
+if (typeof runtime !== 'undefined') {
+  runtime.onMessage.addListener(messageListener);
   console.log('[Background] Service Worker installiert');
-});
+}
+
+// Für Firefox Manifest V2: Event-Listener für Installation
+if (typeof runtime !== 'undefined' && runtime.onInstalled) {
+  runtime.onInstalled.addListener(() => {
+    console.log('[Background] Extension installiert/aktualisiert');
+  });
+}

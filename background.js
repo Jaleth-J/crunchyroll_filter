@@ -37,7 +37,7 @@ const messageListener = (request, sender, sendResponse) => {
     const cacheKey = `${seriesUrl}:${targetLanguage}`;
     if (languageCache.has(cacheKey)) {
       const cachedResult = languageCache.get(cacheKey);
-      console.log(`[Background] 📦 CACHE HIT: ${cachedResult ? '✅' : '❌'}`);
+      console.log(`[Background] 📦 CACHE HIT: ${cachedResult ? '✅ HAT Sprache' : '❌ FEHLT Sprache'}`);
       return sendResponse({ hasLanguage: cachedResult, cached: true });
     }
     
@@ -66,55 +66,91 @@ const messageListener = (request, sender, sendResponse) => {
         // DEBUG: Zeige alle möglichen Sprach-Elemente
         console.log(`[Background] 🔍 Suche nach Sprach-Elementen...`);
         
-        // Versuch 1: data-t Attribute (Crunchyroll Standard)
-        const audioBlock = doc.querySelector('[data-t="detail-row-audio-language"]');
-        const descElement = audioBlock?.querySelector('[data-t="details-item-description"]');
-        const textV1 = descElement?.textContent.toLowerCase() || '';
+        // CRUNCHYROLL 2026: Verschiedene Selector testen
+        let foundText = '';
+        let foundMethod = '';
         
-        console.log(`[Background] Methode 1 (data-t): "${textV1 || '(leer)'}"`);
+        // Methode 1: data-t Attribute (Crunchyroll Standard)
+        const audioBlockV1 = doc.querySelector('[data-t="detail-row-audio-language"]');
+        const descV1 = audioBlockV1?.querySelector('[data-t="details-item-description"]');
+        if (descV1 && descV1.textContent.trim()) {
+          foundText = descV1.textContent.trim().toLowerCase();
+          foundMethod = 'data-t (audio-language)';
+        }
         
-        // Versuch 2: Alternative Selector falls data-t nicht funktioniert
-        let textV2 = '';
-        const altSelectors = [
-          '[class*="audio"]',
-          '[class*="language"]',
-          '[class*="sprache"]',
-          'dd:nth-of-type(4)',
-          'dd:nth-of-type(5)',
-          'dd:nth-of-type(6)'
-        ];
+        // Methode 2: Nach Text "Audio" oder "Sprache" suchen
+        if (!foundText) {
+          const allLabels = Array.from(doc.querySelectorAll('dt, [class*="label"], [data-t*="label"]'));
+          for (const label of allLabels) {
+            const labelText = label.textContent.toLowerCase();
+            if (labelText.includes('audio') || labelText.includes('sprache') || labelText.includes('language')) {
+              // Nächstes dd Element ist der Wert
+              const valueEl = label.nextElementSibling;
+              if (valueEl && valueEl.tagName === 'DD') {
+                foundText = valueEl.textContent.trim().toLowerCase();
+                foundMethod = 'Label/Value Pair';
+                break;
+              }
+            }
+          }
+        }
         
-        for (const sel of altSelectors) {
-          const el = doc.querySelector(sel);
-          if (el && el.textContent) {
-            const text = el.textContent.toLowerCase();
-            if (text.includes('deutsch') || text.includes('german') || text.includes('english') || text.includes('japan')) {
-              textV2 = text;
-              console.log(`[Background] Methode 2 (${sel}): "${text.substring(0, 100)}"`);
+        // Methode 3: Alle dd Elemente durchsuchen (oft Audio-Sprachen in dd)
+        if (!foundText) {
+          const allDDs = doc.querySelectorAll('dd');
+          for (const dd of allDDs) {
+            const text = dd.textContent.toLowerCase();
+            if (text.includes('deutsch') || text.includes('german') || text.includes('english') || text.includes('japanese')) {
+              foundText = text;
+              foundMethod = 'dd Element Scan';
               break;
             }
           }
         }
         
-        // Kombiniere beide Texte
-        const fullText = textV1 || textV2;
-        console.log(`[Background] 📝 Finaler Text zur Prüfung: "${fullText || '(LEER - Sprache nicht gefunden!)'}"`);
+        // Methode 4: Meta-Tags prüfen
+        if (!foundText) {
+          const metaLang = doc.querySelector('meta[name="language"], meta[property="og:language"]');
+          if (metaLang) {
+            foundText = metaLang.getAttribute('content')?.toLowerCase() || '';
+            foundMethod = 'Meta Tag';
+          }
+        }
         
-        // DEBUG: Zeige gesamten Text der Detail-Row
-        const allDetailRows = doc.querySelectorAll('[data-t*="detail-row"]');
+        console.log(`[Background] Methode 1 (data-t): "${descV1?.textContent.trim() || '(leer)'}"`);
+        console.log(`[Background] 📝 Gefundener Text: "${foundText || '(KEIN TEXT GEFUNDEN!)'}"`);
+        console.log(`[Background] 📋 Gefunden mit: ${foundMethod || 'KEINE METHODE ERFOLGREICH'}`);
+        
+        // DEBUG: Zeige gesamten Text der Detail-Rows
+        const allDetailRows = doc.querySelectorAll('[data-t*="detail-row"], dl, .details-row');
         console.log(`[Background] Gefundene Detail-Rows: ${allDetailRows.length}`);
         allDetailRows.forEach((row, i) => {
-          const label = row.querySelector('[data-t*="label"]')?.textContent || row.querySelector('dt')?.textContent || 'N/A';
-          const value = row.querySelector('[data-t*="description"]')?.textContent || row.querySelector('dd')?.textContent || 'N/A';
-          console.log(`   [${i}] ${label.trim()}: ${value.trim().substring(0, 80)}`);
+          if (i < 8) { // Max 8 Zeilen um Console nicht zu fluten
+            const label = row.querySelector('[data-t*="label"], dt, [class*="label"]')?.textContent || 'N/A';
+            const value = row.querySelector('[data-t*="description"], dd, [class*="value"]')?.textContent || 'N/A';
+            console.log(`   [${i}] ${label.trim().substring(0, 30)}: ${value.trim().substring(0, 60)}`);
+          }
         });
         
         // Sprach-Check mit unserem Mapping
+        // WICHTIG: Nur als "hat Sprache" wenn Text NICHT leer ist UND Sprache enthält
         const targets = LANG_MAP[targetLanguage?.toLowerCase()] || [targetLanguage?.toLowerCase()];
-        const hasLanguage = fullText && targets.some(t => fullText.includes(t));
         
-        console.log(`[Background] 🎯 Prüfung: Enthält "${targetLanguage}"? ${hasLanguage ? '✅ JA' : '❌ NEIN'}`);
-        console.log(`[Background] Gesuchte Begriffe: ${targets.join(', ')}`);
+        let hasLanguage = false;
+        if (foundText && foundText.length > 0) {
+          hasLanguage = targets.some(t => foundText.includes(t));
+          console.log(`[Background] 🎯 Prüfung: "${targetLanguage}" in "${foundText.substring(0, 50)}"?`);
+          console.log(`[Background] Gesuchte Begriffe: ${targets.join(', ')}`);
+          targets.forEach(t => {
+            if (foundText.includes(t)) {
+              console.log(`[Background]   ✅ TREFFER: "${t}"`);
+            }
+          });
+        } else {
+          console.log(`[Background] ⚠️ KEIN SPRACH-TEXT GEFUNDEN - kann nicht prüfen!`);
+        }
+        
+        console.log(`[Background] 🎯 Ergebnis: ${hasLanguage ? '✅ HAT Sprache' : '❌ FEHLT Sprache (oder nicht gefunden)'}`);
         
         // Im Cache speichern
         languageCache.set(cacheKey, hasLanguage);
@@ -122,7 +158,12 @@ const messageListener = (request, sender, sendResponse) => {
         console.log(`[Background] 📤 SENDE ANTORT: { hasLanguage: ${hasLanguage} }`);
         console.log(`[Background] === ENDE ANFRAGE ===\n`);
         
-        sendResponse({ hasLanguage, cached: false, debugText: fullText });
+        sendResponse({ 
+          hasLanguage, 
+          cached: false, 
+          debugText: foundText,
+          debugMethod: foundMethod
+        });
       })
       .catch(error => {
         console.error('[Background] ❌ FEHLER:', error.message);

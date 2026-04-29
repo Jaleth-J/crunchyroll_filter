@@ -102,3 +102,6 @@
     filter: none !important;
   }
 }
+
+/* WICHTIG: Verhindert dass Crunchyroll eigenes CSS unsere Klassen überschreibt */
+/* Wird nach dem Crunchyroll-CSS geladen und hat daher Priorität */

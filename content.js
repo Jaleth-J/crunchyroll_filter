@@ -136,12 +136,15 @@ async function filterPopularPage() {
           
           // Debug-Info vom Background-Script
           if (langResult?.debugText) {
-            console.log(`     📝 Gefundener Sprach-Text: "${langResult.debugText.substring(0, 100)}"`);
+            console.log(`     📝 Gefundener Sprach-Text (${langResult.debugMethod}): "${langResult.debugText.substring(0, 100)}"`);
+          } else if (langResult?.debugText === '') {
+            console.log(`     ⚠️ KEIN SPRACH-TEXT GEFUNDEN - Serie wird NICHT abgedunkelt (unsicher)`);
           }
           
           // Card entsprechend markieren
           // WICHTIG: Nur abdunkeln wenn hasLanguage === false (explizit falsch)
-          // Bei null/undefined (Fehler) nicht abdunkeln
+          // Bei null/undefined (Fehler) oder undefined (kein Text gefunden) NICHT abdunkeln!
+          // Lieber sichtbar lassen als falsch abdunkeln!
           if (langResult?.hasLanguage === true) {
             hasLanguage++;
             card.classList.remove('cr-dimmed');
@@ -346,3 +349,28 @@ new MutationObserver(() => {
     init();
   }
 }).observe(document, { subtree: true, childList: true });
+
+// Bei Page-Show (Back-Button, Reload) neu initialisieren
+window.addEventListener('pageshow', (event) => {
+  console.log('📄 Page-Show Event:', event.persisted ? 'aus Cache' : 'frisch geladen');
+  // Kurz warten bis DOM bereit ist
+  setTimeout(() => {
+    console.log('🔄 Re-Initialisiere Filter nach Page-Show...');
+    init();
+  }, 500);
+});
+
+// Bei DOM-Reload (z.B. SPA Navigation)
+document.addEventListener('readystatechange', () => {
+  if (document.readyState === 'interactive' || document.readyState === 'complete') {
+    console.log('📄 DOM Ready State:', document.readyState);
+    // Verhindern dass es zu oft feuert
+    setTimeout(() => {
+      const url = location.href;
+      if (url.includes('/popular') || url.includes('/browse') || url.includes('/discover')) {
+        console.log('🔄 Re-Initialisiere nach DOM-Ready...');
+        init();
+      }
+    }, 1000);
+  }
+});

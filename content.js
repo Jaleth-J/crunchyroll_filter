@@ -13,6 +13,39 @@ console.log('🔧 Browser-API:', typeof browser !== 'undefined' ? 'Firefox (brow
 const MAX_WAIT_TIME = 15000;
 const CHECK_INTERVAL = 500;
 
+// CRUNCHYROLL 2026 CARD SELECTORS (aktualisiert basierend auf DOM-Analyse)
+// BEM-Naming: .browse-card, .browse-card__*, .erc-browse-cards-collection
+const CARD_SELECTORS = [
+  '.browse-card',                    // Haupt-Card Container (BEM)
+  '[class*="browse-card"]',          // BEM-Varianten
+  '.erc-show-card',                  // Legacy
+  '.card-element',                   // Legacy
+  '[data-testid="card"]',            // Test-ID
+  '.tile-card',                      // Alternative
+  '.media-card',                     // Alternative
+  'article',                         // Semantic HTML
+  '.show-card',                      // Generic
+];
+
+// Link-Selector für Serien-URLs
+const LINK_SELECTORS = [
+  'a[href*="/series"]',
+  'a[href*="/watch"]',
+  '.browse-card__poster-wrapper--pU-AW',  // Spezifisch für CR 2026
+  'a.browse-card__poster',
+  'a.card-link'
+];
+
+// Titel-Selector
+const TITLE_SELECTORS = [
+  '.browse-card__title',
+  '.card-title',
+  '.title',
+  'h3', 'h4', 'h5',
+  '[class*="title"]',
+  '[class*="name"]'
+];
+
 // Hauptfunktion: Filtert die Popular-Page
 async function filterPopularPage() {
   console.log('🔍 Starte Filter auf Popular-Page...');
@@ -25,28 +58,16 @@ async function filterPopularPage() {
     console.log(`🎯 Zielsprache: ${targetLang}`);
     
     // Alle Serien-Cards finden
-    // Diese Selector funktionieren für die meisten Crunchyroll-Layouts
-    const selectors = [
-      '.card-element',
-      '[data-testid="card"]',
-      '.erc-show-card',
-      '.show-card',
-      '.tile-card',
-      '.media-card',
-      '[class*="Card"]',
-      '[class*="card"]'
-    ];
-    
-    const cards = document.querySelectorAll(selectors.join(', '));
+    const cards = findCards();
     console.log(`📦 ${cards.length} Cards gefunden`);
     
     // Debug: Zeige gefundene Cards
     if (cards.length > 0) {
-      console.log('📋 Gefundene Cards:', Array.from(cards).map((c, i) => ({
+      console.log('📋 Erste 5 Cards:', Array.from(cards).slice(0, 5).map((c, i) => ({
         index: i,
-        classes: c.className,
-        id: c.id,
-        hasLink: !!c.querySelector('a[href*="/series"]')
+        tag: c.tagName,
+        classes: c.className?.substring(0, 100),
+        hasLink: !!findLink(c)
       })));
     }
     
@@ -54,7 +75,7 @@ async function filterPopularPage() {
       console.warn('⚠️ Keine Cards gefunden - vielleicht falsche Seite?');
       console.log('🔍 Aktuelle URL:', window.location.href);
       console.log('🔍 Verfügbare Selector testen:');
-      selectors.forEach(sel => {
+      CARD_SELECTORS.forEach(sel => {
         const count = document.querySelectorAll(sel).length;
         if (count > 0) console.log(`  ✅ ${sel}: ${count} Elemente`);
       });
@@ -65,6 +86,7 @@ async function filterPopularPage() {
     let hasLanguage = 0;
     let missingLanguage = 0;
     let errors = 0;
+    let noLink = 0;
     
     // Jede Card analysieren
     for (const card of cards) {
@@ -72,22 +94,28 @@ async function filterPopularPage() {
         processed++;
         
         // Serien-URL aus der Card extrahieren
-        const link = card.querySelector('a[href*="/series"], a[href*="/de/series"], a[href*="/en/series"]');
+        const link = findLink(card);
         if (!link) {
-          console.log(`  [${processed}/${cards.length}] ⏭️ Keine Serie-URL gefunden`);
+          noLink++;
           continue;
         }
         
         let href = link.getAttribute('href');
         
         // Relative URL zu absoluter URL machen
-        if (href.startsWith('/')) {
+        if (href && href.startsWith('/')) {
           href = 'https://www.crunchyroll.com' + href;
         }
         
         // Titel für Logging
-        const title = card.querySelector('h3, h4, .title, .card-title, [class*="title"]')?.textContent?.trim() || 'Unbekannt';
-        console.log(`  [${processed}/${cards.length}] 📺 Prüfe: ${title}`);
+        const title = findTitle(card);
+        console.log(`  [${processed}/${cards.length}] 📺 Prüfe: ${title || 'Unbekannt'}`);
+        
+        if (!href) {
+          console.log(`     ⚠️ Keine URL gefunden`);
+          continue;
+        }
+        
         console.log(`     URL: ${href}`);
         
         // Background-Script fragt Sprache ab (CORS-frei!)
@@ -146,6 +174,7 @@ async function filterPopularPage() {
     console.log(`   Verarbeitet: ${processed}`);
     console.log(`   Mit ${targetLang}: ${hasLanguage} ✅`);
     console.log(`   Ohne ${targetLang}: ${missingLanguage} ❌`);
+    console.log(`   Ohne Link: ${noLink}`);
     console.log(`   Fehler: ${errors}`);
     
     // Statistik im Storage speichern
@@ -156,6 +185,7 @@ async function filterPopularPage() {
           processed,
           hasLanguage,
           missingLanguage,
+          noLink,
           language: targetLang,
           errors
         }
@@ -167,6 +197,54 @@ async function filterPopularPage() {
   } catch (error) {
     console.error('🚨 Kritischer Fehler in filterPopularPage:', error);
   }
+}
+
+// Finde alle Cards auf der Seite
+function findCards() {
+  const allCards = new Set();
+  
+  CARD_SELECTORS.forEach(selector => {
+    try {
+      const elements = document.querySelectorAll(selector);
+      elements.forEach(el => allCards.add(el));
+    } catch (e) {
+      // Invalid selector, skip
+    }
+  });
+  
+  // Filtere nur sichtbare Cards mit Mindestgröße
+  return Array.from(allCards).filter(card => {
+    const rect = card.getBoundingClientRect();
+    return rect.width > 100 && rect.height > 100;
+  });
+}
+
+// Finde Link in einer Card
+function findLink(card) {
+  for (const selector of LINK_SELECTORS) {
+    const link = card.querySelector(selector);
+    if (link && link.getAttribute('href')) {
+      return link;
+    }
+  }
+  // Fallback: irgendein Link mit /series/
+  return card.querySelector('a[href*="/series"]');
+}
+
+// Finde Titel in einer Card
+function findTitle(card) {
+  for (const selector of TITLE_SELECTORS) {
+    const el = card.querySelector(selector);
+    if (el && el.textContent?.trim()) {
+      return el.textContent.trim().substring(0, 50);
+    }
+  }
+  // Fallback: aria-label oder title-Attribut
+  const link = findLink(card);
+  if (link) {
+    return link.getAttribute('aria-label') || link.getAttribute('title');
+  }
+  return null;
 }
 
 // Badge zu einer Card hinzufügen
@@ -192,7 +270,6 @@ function addBadge(card, text, type) {
   card.style.zIndex = '1';
   
   card.appendChild(badge);
-  console.log(`  🏷️ Badge hinzugefügt: ${text} (${type})`);
 }
 
 // Warte-Funktion für Lazy-Loading
@@ -201,15 +278,7 @@ async function waitForCards() {
   
   return new Promise((resolve, reject) => {
     const check = () => {
-      const selectors = [
-        '.card-element',
-        '[data-testid="card"]',
-        '.erc-show-card',
-        '.show-card',
-        '.tile-card',
-        '.media-card'
-      ];
-      const cards = document.querySelectorAll(selectors.join(', '));
+      const cards = findCards();
       
       if (cards.length > 0) {
         console.log(`✅ ${cards.length} Cards gefunden nach ${Date.now() - startTime}ms`);
@@ -236,6 +305,7 @@ function init() {
   const isPopularPage = url.includes('/popular') || 
                         url.includes('/videos/popular') ||
                         url.includes('/browse') ||
+                        url.includes('/discover') ||
                         url.includes('/search') ||
                         url.includes('/series');
   
@@ -251,7 +321,7 @@ function init() {
     }
   } else {
     console.log('ℹ️ Keine Popular-Page erkannt. Filter inaktiv.');
-    console.log('   Unterstützte URLs: /popular, /videos/popular, /browse, /search, /series');
+    console.log('   Unterstützte URLs: /popular, /videos/popular, /browse, /discover, /search, /series');
   }
 }
 

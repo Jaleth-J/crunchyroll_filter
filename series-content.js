@@ -2,10 +2,11 @@
 // Wird auf Serien-Seiten ausgeführt (z.B. /de/series/XXX/title)
 // Liest die Audio-Sprachen aus und speichert sie im Background-Storage
 
-console.log('📄 series-content.js aktiv auf Serien-Seite');
+// Browser-API sicher abrufen (Vermeidet Redeclaration wenn content.js auch lädt)
+const getStorage = () => typeof browser !== 'undefined' ? browser.storage : chrome.storage;
+const getRuntime = () => typeof browser !== 'undefined' ? browser.runtime : chrome.runtime;
 
-const storage = typeof browser !== 'undefined' ? browser.storage : chrome.storage;
-const runtime = typeof browser !== 'undefined' ? browser.runtime : chrome.runtime;
+console.log('📄 series-content.js aktiv auf Serien-Seite');
 
 // Längere Wartezeit für dynamisches Laden
 const MAX_WAIT_TIME = 15000;
@@ -189,6 +190,7 @@ async function main() {
   
   // Speichern
   try {
+    const runtime = getRuntime();
     const response = await runtime.sendMessage({
       action: 'saveLanguage',
       seriesId,
@@ -203,11 +205,13 @@ async function main() {
       showSaveIndicator(hasGerman, audioText);
     } else {
       console.error('❌ Speichern fehlgeschlagen:', response?.error);
-      showSaveIndicator(false, 'Speichern fehlgeschlagen');
+      console.log('   Response:', response);
+      showSaveIndicator(false, 'Speichern fehlgeschlagen - Background-Script prüfen');
     }
   } catch (error) {
     console.error('❌ Fehler beim Speichern:', error);
-    showSaveIndicator(false, 'Fehler beim Speichern');
+    console.log('   Error:', error.message);
+    showSaveIndicator(false, 'Fehler: ' + error.message);
   }
   
   console.log('=== series-content.js fertig ===\n');

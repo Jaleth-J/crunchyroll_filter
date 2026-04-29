@@ -200,13 +200,19 @@ async function main() {
       detectedText: audioText
     });
     
-    if (response?.success) {
+    console.log('   Raw Response:', response);
+    console.log('   Response Type:', typeof response);
+    
+    // Response kann boolean ODER object sein
+    const success = (response === true) || (response?.success === true);
+    
+    if (success) {
       console.log('✅ Erfolgreich im Storage gespeichert');
       showSaveIndicator(hasGerman, audioText);
     } else {
-      console.error('❌ Speichern fehlgeschlagen:', response?.error);
-      console.log('   Response:', response);
-      showSaveIndicator(false, 'Speichern fehlgeschlagen - Background-Script prüfen');
+      console.error('❌ Speichern fehlgeschlagen');
+      console.log('   Response war:', response);
+      showSaveIndicator(false, 'Speichern fehlgeschlagen');
     }
   } catch (error) {
     console.error('❌ Fehler beim Speichern:', error);

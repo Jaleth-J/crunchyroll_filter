@@ -134,7 +134,14 @@ async function filterPopularPage() {
             continue;
           }
           
+          // Debug-Info vom Background-Script
+          if (langResult?.debugText) {
+            console.log(`     📝 Gefundener Sprach-Text: "${langResult.debugText.substring(0, 100)}"`);
+          }
+          
           // Card entsprechend markieren
+          // WICHTIG: Nur abdunkeln wenn hasLanguage === false (explizit falsch)
+          // Bei null/undefined (Fehler) nicht abdunkeln
           if (langResult?.hasLanguage === true) {
             hasLanguage++;
             card.classList.remove('cr-dimmed');

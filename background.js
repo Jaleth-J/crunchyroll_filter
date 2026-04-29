@@ -29,14 +29,19 @@ const messageListener = (request, sender, sendResponse) => {
   if (request.action === 'checkLanguage') {
     const { seriesUrl, targetLanguage } = request;
     
+    console.log(`\n[Background] === NEUE ANFRAGE ===`);
+    console.log(`[Background] URL: ${seriesUrl}`);
+    console.log(`[Background] Zielsprache: ${targetLanguage}`);
+    
     // Cache prüfen (vermeidet doppelte Requests)
     const cacheKey = `${seriesUrl}:${targetLanguage}`;
     if (languageCache.has(cacheKey)) {
-      console.log(`[Cache Hit] ${seriesUrl} → ${languageCache.get(cacheKey)}`);
-      return sendResponse({ hasLanguage: languageCache.get(cacheKey), cached: true });
+      const cachedResult = languageCache.get(cacheKey);
+      console.log(`[Background] 📦 CACHE HIT: ${cachedResult ? '✅' : '❌'}`);
+      return sendResponse({ hasLanguage: cachedResult, cached: true });
     }
     
-    console.log(`[Background] Prüfe Sprache für: ${seriesUrl} (${targetLanguage})`);
+    console.log(`[Background] 🌐 Lade Serie...`);
     
     // Serie im Background laden (CORS-frei dank Extension!)
     fetch(seriesUrl, {
@@ -46,34 +51,82 @@ const messageListener = (request, sender, sendResponse) => {
       }
     })
       .then(response => {
+        console.log(`[Background] HTTP Status: ${response.status} ${response.ok ? '✅' : '❌'}`);
         if (!response.ok) {
           throw new Error(`HTTP ${response.status}: ${response.statusText}`);
         }
         return response.text();
       })
       .then(html => {
+        console.log(`[Background] HTML empfangen: ${html.length} Bytes`);
+        
         const parser = new DOMParser();
         const doc = parser.parseFromString(html, 'text/html');
         
-        // Sprach-Block finden
+        // DEBUG: Zeige alle möglichen Sprach-Elemente
+        console.log(`[Background] 🔍 Suche nach Sprach-Elementen...`);
+        
+        // Versuch 1: data-t Attribute (Crunchyroll Standard)
         const audioBlock = doc.querySelector('[data-t="detail-row-audio-language"]');
         const descElement = audioBlock?.querySelector('[data-t="details-item-description"]');
-        const text = descElement?.textContent.toLowerCase() || '';
+        const textV1 = descElement?.textContent.toLowerCase() || '';
         
-        console.log(`[Background] Gefundener Text: "${text}"`);
+        console.log(`[Background] Methode 1 (data-t): "${textV1 || '(leer)'}"`);
+        
+        // Versuch 2: Alternative Selector falls data-t nicht funktioniert
+        let textV2 = '';
+        const altSelectors = [
+          '[class*="audio"]',
+          '[class*="language"]',
+          '[class*="sprache"]',
+          'dd:nth-of-type(4)',
+          'dd:nth-of-type(5)',
+          'dd:nth-of-type(6)'
+        ];
+        
+        for (const sel of altSelectors) {
+          const el = doc.querySelector(sel);
+          if (el && el.textContent) {
+            const text = el.textContent.toLowerCase();
+            if (text.includes('deutsch') || text.includes('german') || text.includes('english') || text.includes('japan')) {
+              textV2 = text;
+              console.log(`[Background] Methode 2 (${sel}): "${text.substring(0, 100)}"`);
+              break;
+            }
+          }
+        }
+        
+        // Kombiniere beide Texte
+        const fullText = textV1 || textV2;
+        console.log(`[Background] 📝 Finaler Text zur Prüfung: "${fullText || '(LEER - Sprache nicht gefunden!)'}"`);
+        
+        // DEBUG: Zeige gesamten Text der Detail-Row
+        const allDetailRows = doc.querySelectorAll('[data-t*="detail-row"]');
+        console.log(`[Background] Gefundene Detail-Rows: ${allDetailRows.length}`);
+        allDetailRows.forEach((row, i) => {
+          const label = row.querySelector('[data-t*="label"]')?.textContent || row.querySelector('dt')?.textContent || 'N/A';
+          const value = row.querySelector('[data-t*="description"]')?.textContent || row.querySelector('dd')?.textContent || 'N/A';
+          console.log(`   [${i}] ${label.trim()}: ${value.trim().substring(0, 80)}`);
+        });
         
         // Sprach-Check mit unserem Mapping
         const targets = LANG_MAP[targetLanguage?.toLowerCase()] || [targetLanguage?.toLowerCase()];
-        const hasLanguage = targets.some(t => text.includes(t));
+        const hasLanguage = fullText && targets.some(t => fullText.includes(t));
+        
+        console.log(`[Background] 🎯 Prüfung: Enthält "${targetLanguage}"? ${hasLanguage ? '✅ JA' : '❌ NEIN'}`);
+        console.log(`[Background] Gesuchte Begriffe: ${targets.join(', ')}`);
         
         // Im Cache speichern
         languageCache.set(cacheKey, hasLanguage);
         
-        console.log(`[Background] Ergebnis: ${hasLanguage ? '✅' : '❌'} ${targetLanguage}`);
-        sendResponse({ hasLanguage, cached: false });
+        console.log(`[Background] 📤 SENDE ANTORT: { hasLanguage: ${hasLanguage} }`);
+        console.log(`[Background] === ENDE ANFRAGE ===\n`);
+        
+        sendResponse({ hasLanguage, cached: false, debugText: fullText });
       })
       .catch(error => {
-        console.error('[Background] Fehler:', error);
+        console.error('[Background] ❌ FEHLER:', error.message);
+        console.error('[Background] Stack:', error.stack);
         sendResponse({ error: error.message, hasLanguage: null });
       });
     
@@ -98,7 +151,7 @@ const messageListener = (request, sender, sendResponse) => {
 // Listener registrieren (Firefox + Chrome kompatibel)
 if (typeof runtime !== 'undefined') {
   runtime.onMessage.addListener(messageListener);
-  console.log('[Background] Service Worker installiert');
+  console.log('[Background] Script gestartet und bereit für Anfragen');
 }
 
 // Für Firefox Manifest V2: Event-Listener für Installation
